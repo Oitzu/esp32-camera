@@ -55,43 +55,49 @@ const int resolution[][2] = {
     {1600,  1200},   /* UXGA  */
 };
 
-#if (OMV_XCLK_SOURCE == OMV_XCLK_TIM)
-static int extclk_config(int frequency)
+static int extclk_config(int frequency, int pin)
 {
-    // Doubles PCLK
-    //__HAL_RCC_TIMCLKPRESCALER(RCC_TIMPRES_ACTIVATED);
+	//Enable LEDC 
+	periph_module_enable(PERIPH_LEDC_MODULE);
 
-    /* TCLK (PCLK * 2) */
-    int tclk  = DCMI_TIM_PCLK_FREQ() * 2;
+	//Timer configuration
+	ledc_timer_config_t timer_conf;
+	//Timer duty depth
+	timer_conf.bit_num = 3; //=11 bit?
+	//Timer frequency
+	timer_conf.freq_hz = frequency;
+	//Timer speed mode
+	timer_conf.speed_mode = LEDC_HIGH_SPEED_MODE;
+	//Timer number (0-3)
+	timer_conf.timer_num = 0;
+	esp_err_t err = ledc_timer_config(&timer_conf);
+	if (err != ESP_OK) {
+		ESP_LOGE(TAG, "ledc_timer_config failed, rc=%x", err);
+		return -1;
+	}
 
-    /* Period should be even */
-    int period = (tclk / frequency) - 1;
-
-    /* Timer base configuration */
-    TIMHandle.Instance          = DCMI_TIM;
-    TIMHandle.Init.Period       = period;
-    TIMHandle.Init.Prescaler    = 0;
-    TIMHandle.Init.ClockDivision = 0;
-    TIMHandle.Init.CounterMode   = TIM_COUNTERMODE_UP;
-
-    /* Timer channel configuration */
-    TIM_OC_InitTypeDef TIMOCHandle;
-    TIMOCHandle.Pulse       = period/2;
-    TIMOCHandle.OCMode      = TIM_OCMODE_PWM1;
-    TIMOCHandle.OCPolarity  = TIM_OCPOLARITY_HIGH;
-    TIMOCHandle.OCFastMode  = TIM_OCFAST_DISABLE;
-    TIMOCHandle.OCIdleState = TIM_OCIDLESTATE_RESET;
-
-    if (HAL_TIM_PWM_Init(&TIMHandle) != HAL_OK
-            || HAL_TIM_PWM_ConfigChannel(&TIMHandle, &TIMOCHandle, DCMI_TIM_CHANNEL) != HAL_OK
-            || HAL_TIM_PWM_Start(&TIMHandle, DCMI_TIM_CHANNEL) != HAL_OK) {
-        // Initialization Error
-        return -1;
-    }
-
-    return 0;
+	//Channel configuration
+	ledc_channel_config_t ch_conf;
+	//Channel 
+	ch_conf.channel = 0;
+	//Timer source (0-3) (See timer configuration)
+	ch_conf.timer_sel = 0;
+	//Deactivate interrupt on channel
+	ch_conf.intr_type = LEDC_INTR_DISABLE;
+	//Duty cycle (0 to (2*bit_num)-1)
+	ch_conf.duty = 4;
+	//Channel speed mode
+	ch_conf.speed_mode = LEDC_HIGH_SPEED_MODE;
+	//Pin number
+	ch_conf.gpio_num = pin;
+	err = ledc_channel_config(&ch_conf);
+	if (err != ESP_OK) {
+		ESP_LOGE(TAG, "ledc_channel_config failed, rc=%x", err);
+		return -1;
+	}
+	
+	return 0;
 }
-#endif // (OMV_XCLK_SOURCE == OMV_XCLK_TIM)
 
 static int dcmi_config(uint32_t jpeg_mode)
 {
@@ -213,13 +219,13 @@ int sensor_init()
     // OV7725 PCLK when prescalar is disabled (CLKRC[6]=1):
     //  Internal clock = Input clock × PLL multiplier
     //
-    #if (OMV_XCLK_SOURCE == OMV_XCLK_TIM)
+
     // Configure external clock timer.
     if (extclk_config(OMV_XCLK_FREQUENCY) != 0) {
         // Timer problem
         return -1;
     }
-    #elif (OMV_XCLK_SOURCE == OMV_XCLK_MCO)
+
     // Pass through the MCO1 clock with source input set to HSE (12MHz).
     // Note MCO1 is multiplexed on OPENMV2/TIM1 only.
     HAL_RCC_MCOConfig(RCC_MCO1, RCC_MCO1SOURCE_HSE, RCC_MCODIV_1);
