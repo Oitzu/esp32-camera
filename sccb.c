@@ -7,36 +7,19 @@
  *
  */
 #include <stdbool.h>
-#include STM32_HAL_H
-#include <systick.h>
-#include "omv_boardconfig.h"
+#include "wiring.h"
 #include "sccb.h"
+#include "twi.h"
+#include <stdio.h>
+
 #define SCCB_FREQ   (100000) // We don't need fast I2C. 100KHz is fine here.
 #define TIMEOUT     (1000) /* Can't be sure when I2C routines return. Interrupts
 while polling hardware may result in unknown delays. */
-static I2C_HandleTypeDef I2CHandle;
 
-int SCCB_Init()
+
+int SCCB_Init(int pin_sda, int pin_scl)
 {
-    /* Configure I2C */
-    I2CHandle.Instance             = SCCB_I2C;
-    I2CHandle.Init.AddressingMode  = I2C_ADDRESSINGMODE_7BIT;
-    #if defined(STM32F765xx) ||  defined(STM32F769xx)
-    I2CHandle.Init.Timing          = 0x20404768; // 10KHz
-    #else
-    I2CHandle.Init.ClockSpeed      = SCCB_FREQ;
-    I2CHandle.Init.DutyCycle       = I2C_DUTYCYCLE_2;
-    #endif
-    I2CHandle.Init.DualAddressMode = I2C_DUALADDRESS_DISABLED;
-    I2CHandle.Init.GeneralCallMode = I2C_GENERALCALL_DISABLED;
-    I2CHandle.Init.NoStretchMode   = I2C_NOSTRETCH_DISABLED;
-    I2CHandle.Init.OwnAddress1     = 0xFE;
-    I2CHandle.Init.OwnAddress2     = 0xFE;
-
-    if (HAL_I2C_Init(&I2CHandle) != HAL_OK) {
-        /* Initialization Error */
-        return -1;
-    }
+    twi_init(pin_sda, pin_scl);
     return 0;
 }
 
@@ -45,11 +28,12 @@ uint8_t SCCB_Probe()
     uint8_t reg = 0x00;
     uint8_t slv_addr = 0x00;
 
-    for (int i=0; i<127; i++) {
-        if (HAL_I2C_Master_Transmit(&I2CHandle, i, &reg, 1, TIMEOUT) == HAL_OK) {
+    for (uint8_t i=0; i<127; i++) {
+        if (twi_writeTo(i, &reg, 1, true) == 0) {
             slv_addr = i;
             break;
         }
+
         if (i!=126) {
             systick_sleep(1); // Necessary for OV7725 camera (not for OV2640).
         }
@@ -62,11 +46,20 @@ uint8_t SCCB_Read(uint8_t slv_addr, uint8_t reg)
     uint8_t data=0;
 
     __disable_irq();
-    if((HAL_I2C_Master_Transmit(&I2CHandle, slv_addr, &reg, 1, TIMEOUT) != HAL_OK)
-    || (HAL_I2C_Master_Receive(&I2CHandle, slv_addr, &data, 1, TIMEOUT) != HAL_OK)) {
-        data=0xFF;
+    int rc = twi_writeTo(slv_addr, &reg, 1, true);
+    if (rc != 0) {
+        data = 0xff;
+    }
+    else {
+        rc = twi_readFrom(slv_addr, &data, 1, true);
+        if (rc != 0) {
+            data=0xFF;
+        }
     }
     __enable_irq();
+    if (rc != 0) {
+        printf("SCCB_Read [%02x] failed rc=%d\n", reg, rc);
+    }
     return data;
 }
 
@@ -76,9 +69,12 @@ uint8_t SCCB_Write(uint8_t slv_addr, uint8_t reg, uint8_t data)
     uint8_t buf[] = {reg, data};
 
     __disable_irq();
-    if(HAL_I2C_Master_Transmit(&I2CHandle, slv_addr, buf, 2, TIMEOUT) != HAL_OK) {
+    if(twi_writeTo(slv_addr, buf, 2, true) != 0) {
         ret=0xFF;
     }
     __enable_irq();
+    if (ret != 0) {
+        printf("SCCB_Write [%02x]=%02x failed\n", reg, data);
+    }
     return ret;
 }
