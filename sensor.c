@@ -54,49 +54,49 @@ const int resolution[][2] = {
 
 static int extclk_config(int frequency, int pin)
 {
-	//Enable LEDC 
-	periph_module_enable(PERIPH_LEDC_MODULE);
+    //Enable LEDC 
+    periph_module_enable(PERIPH_LEDC_MODULE);
 
-	//Timer configuration
-	ledc_timer_config_t timer_conf;
-	//Timer duty depth
-	timer_conf.bit_num = 3; //=11 bit?
-	//Timer frequency
-	timer_conf.freq_hz = frequency;
-	//Timer speed mode
-	timer_conf.speed_mode = LEDC_HIGH_SPEED_MODE;
-	//Timer number (0-3)
-	timer_conf.timer_num = 0;
-	esp_err_t err = ledc_timer_config(&timer_conf);
-	if (err != ESP_OK) {
-		ESP_LOGE(TAG, "ledc_timer_config failed, rc=%x", err);
-		return -1;
-	}
+    //Timer configuration
+    ledc_timer_config_t timer_conf;
+    //Timer duty depth
+    timer_conf.bit_num = 3; //=11 bit?
+    //Timer frequency
+    timer_conf.freq_hz = frequency;
+    //Timer speed mode
+    timer_conf.speed_mode = LEDC_HIGH_SPEED_MODE;
+    //Timer number (0-3)
+    timer_conf.timer_num = 0;
+    esp_err_t err = ledc_timer_config(&timer_conf);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "ledc_timer_config failed, rc=%x", err);
+        return -1;
+    }
 
-	//Channel configuration
-	ledc_channel_config_t ch_conf;
-	//Channel 
-	ch_conf.channel = 0;
-	//Timer source (0-3) (See timer configuration)
-	ch_conf.timer_sel = 0;
-	//Deactivate interrupt on channel
-	ch_conf.intr_type = LEDC_INTR_DISABLE;
-	//Duty cycle (0 to (2*bit_num)-1)
-	ch_conf.duty = 4;
-	//Channel speed mode
-	ch_conf.speed_mode = LEDC_HIGH_SPEED_MODE;
-	//Pin number
-	ch_conf.gpio_num = pin;
-	err = ledc_channel_config(&ch_conf);
-	if (err != ESP_OK) {
-		ESP_LOGE(TAG, "ledc_channel_config failed, rc=%x", err);
-		return -1;
-	}
-	
-	return 0;
+    //Channel configuration
+    ledc_channel_config_t ch_conf;
+    //Channel 
+    ch_conf.channel = 0;
+    //Timer source (0-3) (See timer configuration)
+    ch_conf.timer_sel = 0;
+    //Deactivate interrupt on channel
+    ch_conf.intr_type = LEDC_INTR_DISABLE;
+    //Duty cycle (0 to (2*bit_num)-1)
+    ch_conf.duty = 4;
+    //Channel speed mode
+    ch_conf.speed_mode = LEDC_HIGH_SPEED_MODE;
+    //Pin number
+    ch_conf.gpio_num = pin;
+    err = ledc_channel_config(&ch_conf);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "ledc_channel_config failed, rc=%x", err);
+        return -1;
+    }
+
+    return 0;
 }
 
-static int dcmi_config(uint32_t jpeg_mode)
+static int interface_config(uint32_t jpeg_mode)
 {
     // DCMI configuration
     DCMIHandle.Instance         = DCMI;
@@ -222,13 +222,6 @@ int sensor_init()
         // Timer problem
         return -1;
     }
-
-    // Pass through the MCO1 clock with source input set to HSE (12MHz).
-    // Note MCO1 is multiplexed on OPENMV2/TIM1 only.
-    HAL_RCC_MCOConfig(RCC_MCO1, RCC_MCO1SOURCE_HSE, RCC_MCODIV_1);
-    #else
-    #error "OMV_XCLK_SOURCE is not set!"
-    #endif
 
     /* Reset the sesnor state */
     memset(&sensor, 0, sizeof(sensor_t));
@@ -607,9 +600,6 @@ void DCMI_DMAConvCpltUser(uint32_t addr)
     }
 }
 
-// The JPEG offset allows JPEG compression of the framebuffer without overwriting the pixels.
-// The offset size may need to be adjusted depending on the quality, otherwise JPEG data may
-// overwrite image pixels before they are compressed.
 int sensor_snapshot(image_t *image, line_filter_t line_filter_func, void *line_filter_args)
 {
     static int overflow_count = 0;
