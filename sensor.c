@@ -57,16 +57,11 @@ static int extclk_config(int frequency, int pin)
     //Enable LEDC 
     periph_module_enable(PERIPH_LEDC_MODULE);
 
-    //Timer configuration
-    ledc_timer_config_t timer_conf;
-    //Timer duty depth
-    timer_conf.bit_num = 3; //=11 bit?
-    //Timer frequency
-    timer_conf.freq_hz = frequency;
-    //Timer speed mode
-    timer_conf.speed_mode = LEDC_HIGH_SPEED_MODE;
-    //Timer number (0-3)
-    timer_conf.timer_num = 0;
+    ledc_timer_config_t timer_conf;                 //Timer configuration
+    timer_conf.bit_num = 3;                         //Timer duty depth (=11 bit?)
+    timer_conf.freq_hz = frequency;                 //Timer frequency
+    timer_conf.speed_mode = LEDC_HIGH_SPEED_MODE;   //Timer speed mode
+    timer_conf.timer_num = 0;                       //Timer number (0-3)
     esp_err_t err = ledc_timer_config(&timer_conf);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "ledc_timer_config failed, rc=%x", err);
@@ -75,18 +70,12 @@ static int extclk_config(int frequency, int pin)
 
     //Channel configuration
     ledc_channel_config_t ch_conf;
-    //Channel 
-    ch_conf.channel = 0;
-    //Timer source (0-3) (See timer configuration)
-    ch_conf.timer_sel = 0;
-    //Deactivate interrupt on channel
-    ch_conf.intr_type = LEDC_INTR_DISABLE;
-    //Duty cycle (0 to (2*bit_num)-1)
-    ch_conf.duty = 4;
-    //Channel speed mode
-    ch_conf.speed_mode = LEDC_HIGH_SPEED_MODE;
-    //Pin number
-    ch_conf.gpio_num = pin;
+    ch_conf.channel = 0;                        //Channel 
+    ch_conf.timer_sel = 0;                      //Timer source (0-3) (See timer configuration)
+    ch_conf.intr_type = LEDC_INTR_DISABLE;      //Deactivate interrupt on channel
+    ch_conf.duty = 4;                           //Duty cycle (0 to (2*bit_num)-1)
+    ch_conf.speed_mode = LEDC_HIGH_SPEED_MODE;  //Channel speed mode
+    ch_conf.gpio_num = pin;                     //Pin number
     err = ledc_channel_config(&ch_conf);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "ledc_channel_config failed, rc=%x", err);
