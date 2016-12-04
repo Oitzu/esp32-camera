@@ -253,37 +253,6 @@ static void i2s_run(size_t line_width, int height)
     i2s_fill_buf(cur_buffer);
 }
 
-static int dma_config()
-{
-    // DMA Stream configuration
-    DMAHandle.Instance              = DMA2_Stream1;             /* Select the DMA instance          */
-    DMAHandle.Init.Channel          = DMA_CHANNEL_1;            /* DMA Channel                      */
-    DMAHandle.Init.Direction        = DMA_PERIPH_TO_MEMORY;     /* Peripheral to memory transfer    */
-    DMAHandle.Init.MemInc           = DMA_MINC_ENABLE;          /* Memory increment mode Enable     */
-    DMAHandle.Init.PeriphInc        = DMA_PINC_DISABLE;         /* Peripheral increment mode Enable */
-    DMAHandle.Init.PeriphDataAlignment  = DMA_PDATAALIGN_WORD;  /* Peripheral data alignment : Word */
-    DMAHandle.Init.MemDataAlignment = DMA_MDATAALIGN_WORD;      /* Memory data alignment : Word     */
-    DMAHandle.Init.Mode             = DMA_NORMAL;               /* Normal DMA mode                  */
-    DMAHandle.Init.Priority         = DMA_PRIORITY_HIGH;        /* Priority level : high            */
-    DMAHandle.Init.FIFOMode         = DMA_FIFOMODE_ENABLE;      /* FIFO mode enabled                */
-    DMAHandle.Init.FIFOThreshold    = DMA_FIFO_THRESHOLD_FULL;  /* FIFO threshold full              */
-    DMAHandle.Init.MemBurst         = DMA_MBURST_INC4;          /* Memory burst                     */
-    DMAHandle.Init.PeriphBurst      = DMA_PBURST_SINGLE;        /* Peripheral burst                 */
-
-    // Configure and disable DMA IRQ Channel
-    HAL_NVIC_SetPriority(DMA2_Stream1_IRQn, IRQ_PRI_DMA21, IRQ_SUBPRI_DMA21);
-    HAL_NVIC_DisableIRQ(DMA2_Stream1_IRQn);
-
-    // Initialize the DMA stream
-    HAL_DMA_DeInit(&DMAHandle);
-    if (HAL_DMA_Init(&DMAHandle) != HAL_OK) {
-        // Initialization Error
-        return -1;
-    }
-
-    return 0;
-}
-
 void sensor_init0()
 {
     // Init FB mutex
