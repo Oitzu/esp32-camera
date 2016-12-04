@@ -103,7 +103,7 @@ static void i2s_init();
 static void i2s_run(size_t line_width, int height);
 static void IRAM_ATTR i2s_isr(void* arg);
 static esp_err_t dma_desc_init(int line_width);
-static void line_filter_task(void *pvParameters);
+static void fb_filler_task(void *pvParameters);
 
 static int extclk_config(int frequency, int pin)
 {
@@ -274,21 +274,10 @@ static void i2s_run(size_t line_width, int height)
 
 void sensor_init0()
 {
-    // Init FB mutex
-    mutex_init(&JPEG_FB()->lock);
-
-    // Save fb_enabled flag state
-    int fb_enabled = JPEG_FB()->enabled;
 
     // Clear framebuffers
     memset(MAIN_FB(), 0, sizeof(*MAIN_FB()));
     memset(JPEG_FB(), 0, sizeof(*JPEG_FB()));
-
-    // Set default quality
-    JPEG_FB()->quality = 35;
-
-    // Set fb_enabled
-    JPEG_FB()->enabled = fb_enabled;
 }
 
 esp_err_t init(const camera_config_t* config)
@@ -394,11 +383,43 @@ esp_err_t init(const camera_config_t* config)
     frame_ready = xSemaphoreCreateBinary();
 
     /* Creating task that pushes lines into fb */
-    xTaskCreatePinnedToCore(&line_filter_task, "line_filter", 2048, NULL, 10, NULL, 0);
+    xTaskCreatePinnedToCore(&fb_filler_task, "fb_filler", 2048, NULL, 10, NULL, 0);
     
     ESP_LOGD(TAG, "Init done");
     /* All good! */
     return ESP_OK;
+}
+
+static void fb_filler_task(void *pvParameters) {
+    static int prev_buf = -1;
+    while (true) {
+        xSemaphoreTake(data_ready, portMAX_DELAY);
+        int buf_idx = !cur_buffer;
+        if (prev_buf != -1 && prev_buf == buf_idx) {
+            ets_printf("! %d\n", line_count);
+        }
+        uint8_t* pfb = s_fb + line_count * buf_line_width;
+        if (line_count & 1) {
+            uint8_t* psrc = s_fb + (line_count - 1) * buf_line_width;
+            memcpy(pfb, psrc, buf_line_width);
+        }
+        else {
+            const uint32_t* buf = s_dma_buf[buf_idx];
+            for (int i = 0; i < buf_line_width; ++i) {
+                uint32_t v = *buf;
+                uint8_t comp = (v & 0xff0000) >> 16;
+                *pfb = comp;
+                ++buf;
+                ++pfb;
+            }
+        }
+        ++line_count;
+        prev_buf = buf_idx;
+        if (!i2s_running) {
+            prev_buf = -1;
+            xSemaphoreGive(frame_ready);
+        }
+    }
 }
 
 int sensor_reset()
@@ -409,9 +430,6 @@ int sensor_reset()
     sensor.framesize=0xFF;
     sensor.framerate=0xFF;
     sensor.gainceiling=0xFF;
-
-    // Reset image filter
-    sensor_set_line_filter(NULL, NULL);
 
     // Call sensor-specific reset function
     sensor.reset(&sensor);
@@ -640,13 +658,5 @@ int sensor_set_special_effect(sde_t sde)
     }
 
     sensor.sde = sde;
-    return 0;
-}
-
-int sensor_set_line_filter(line_filter_t line_filter_func, void *line_filter_args)
-{
-    // Set line pre-processing function and args
-    sensor.line_filter_func = line_filter_func;
-    sensor.line_filter_args = line_filter_args;
     return 0;
 }
