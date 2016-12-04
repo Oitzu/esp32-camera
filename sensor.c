@@ -272,13 +272,15 @@ void sensor_init0()
     JPEG_FB()->enabled = fb_enabled;
 }
 
-int sensor_init()
+esp_err_t init(const camera_config_t* config)
 {
+    memcpy(&s_config, config, sizeof(s_config)); //Copy config
+    
     /* Do a power cycle */
-    DCMI_PWDN_HIGH();
+    gpio_set_level(s_config.pin_pwdn, 1);
     systick_sleep(10);
 
-    DCMI_PWDN_LOW();
+    gpio_set_level(s_config.pin_pwdn, 0);
     systick_sleep(10);
 
     /* Initialize the SCCB interface */
@@ -301,9 +303,9 @@ int sensor_init()
     // OV7725 PCLK when prescalar is disabled (CLKRC[6]=1):
     //  Internal clock = Input clock × PLL multiplier
     //
-
+    ESP_LOGD(TAG, "Enabling XCLK output");
     // Configure external clock timer.
-    if (extclk_config(OMV_XCLK_FREQUENCY) != 0) {
+    if (extclk_config(s_config.xclk_freq_hz) != 0) {
         // Timer problem
         return -1;
     }
@@ -317,13 +319,15 @@ int sensor_init()
        sensor with both polarities to determine line state. */
     sensor.reset_pol = ACTIVE_HIGH;
 
+    ESP_LOGD(TAG, "Resetting camera");
     /* Reset the sensor */
-    DCMI_RESET_HIGH();
+    gpio_set_level(s_config.pin_reset, 1);
     systick_sleep(10);
 
-    DCMI_RESET_LOW();
+    gpio_set_level(s_config.pin_reset, 0);
     systick_sleep(10);
 
+    ESP_LOGD(TAG, "Searching for camera address");
     /* Probe the sensor */
     sensor.slv_addr = SCCB_Probe();
     if (sensor.slv_addr == 0) {
@@ -332,16 +336,17 @@ int sensor_init()
         sensor.reset_pol = ACTIVE_LOW;
 
         /* Pull the sensor out of the reset state */
-        DCMI_RESET_HIGH();
+        gpio_set_level(s_config.pin_reset, 1);
         systick_sleep(10);
 
         /* Probe again to set the slave addr */
         sensor.slv_addr = SCCB_Probe();
         if (sensor.slv_addr == 0)  {
             // Probe failed
-            return -2;
+            return ESP_ERR_CAMERA_NOT_DETECTED;
         }
     }
+    ESP_LOGD(TAG, "Detected camera at address=0x%02x", sensor.slv_addr);
 
     /* Read the sensor information */
     sensor.id.PID  = SCCB_Read(sensor.slv_addr, REG_PID);
@@ -364,22 +369,17 @@ int sensor_init()
             /* Sensor not supported */
             return -3;
     }
+    
+    /* Creating data and frame semaphore */
+    data_ready = xSemaphoreCreateBinary();
+    frame_ready = xSemaphoreCreateBinary();
 
-    /* Configure the DCMI DMA Stream */
-    if (dma_config() != 0) {
-        // DMA problem
-        return -4;
-    }
-
-    /* Configure the DCMI interface. This should be called
-       after ovxxx_init to set VSYNC/HSYNC/PCLK polarities */
-    if (dcmi_config(DCMI_JPEG_DISABLE) != 0){
-        // DCMI config failed
-        return -5;
-    }
-
+    /* Creating task that pushes lines into fb */
+    xTaskCreatePinnedToCore(&line_filter_task, "line_filter", 2048, NULL, 10, NULL, 0);
+    
+    ESP_LOGD(TAG, "Init done");
     /* All good! */
-    return 0;
+    return ESP_OK;
 }
 
 int sensor_reset()

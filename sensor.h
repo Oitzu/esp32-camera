@@ -82,6 +82,7 @@ typedef enum {
 } reset_polarity_t;
 
 typedef struct {
+    int pin_pwdn;
     int pin_reset;          /*!< GPIO pin for camera reset line */
     int pin_xclk;           /*!< GPIO pin for camera XCLK line */
     int pin_sscb_sda;       /*!< GPIO pin for camera SDA line */

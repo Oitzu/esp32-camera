@@ -8,7 +8,6 @@
  */
 #ifndef __FRAMEBUFFER_H__
 #define __FRAMEBUFFER_H__
-#include "mutex.h"
 extern char _fb_base;
 static struct framebuffer {
     int w,h;
