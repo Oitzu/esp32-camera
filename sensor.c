@@ -6,18 +6,30 @@
  * Sensor abstraction layer.
  *
  */
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "mp.h"
-#include "irq.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/semphr.h"
+#include "soc/soc.h"
 #include "sccb.h"
+#include "wiring.h"
+#include "driver/gpio.h"
+#include "driver/ledc.h"
+#include "soc/gpio_sig_map.h"
+#include "soc/i2s_reg.h"
+#include "soc/io_mux_reg.h"
+#include "sensor.h"
 #include "ov9650.h"
 #include "ov2640.h"
 #include "ov7725.h"
-#include "sensor.h"
-#include "systick.h"
+#include "rom/lldesc.h"
+#include "esp_intr.h"
+#include "camera.h"
+#include "esp_log.h"
+#include "driver/periph_ctrl.h"
 #include "framebuffer.h"
-#include "omv_boardconfig.h"
 
 #define REG_PID        0x0A
 #define REG_VER        0x0B
@@ -28,9 +40,6 @@
 #define MAX_XFER_SIZE (0xFFFC)
 
 sensor_t sensor;
-TIM_HandleTypeDef  TIMHandle;
-DMA_HandleTypeDef  DMAHandle;
-DCMI_HandleTypeDef DCMIHandle;
 
 static int line = 0;
 extern uint8_t _line_buf;
