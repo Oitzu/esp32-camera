@@ -85,45 +85,138 @@ static int extclk_config(int frequency, int pin)
     return 0;
 }
 
-static int interface_config(uint32_t jpeg_mode)
+#define ETS_I2S0_INUM 13 //https://github.com/espressif/esp-idf/blob/master/components/esp32/include/soc/soc.h#L259-L294
+
+static void i2s_init()
 {
-    // DCMI configuration
-    DCMIHandle.Instance         = DCMI;
-    // VSYNC clock polarity
-    DCMIHandle.Init.VSPolarity  = SENSOR_HW_FLAGS_GET(&sensor, SENSOR_HW_FLAGS_VSYNC) ?
-                                    DCMI_VSPOLARITY_HIGH : DCMI_VSPOLARITY_LOW;
-    // HSYNC clock polarity
-    DCMIHandle.Init.HSPolarity  = SENSOR_HW_FLAGS_GET(&sensor, SENSOR_HW_FLAGS_HSYNC) ?
-                                    DCMI_HSPOLARITY_HIGH : DCMI_HSPOLARITY_LOW;
-    // PXCLK clock polarity
-    DCMIHandle.Init.PCKPolarity = SENSOR_HW_FLAGS_GET(&sensor, SENSOR_HW_FLAGS_PIXCK) ?
-                                    DCMI_PCKPOLARITY_RISING : DCMI_PCKPOLARITY_FALLING;
+    xt_set_interrupt_handler(ETS_I2S0_INUM, &i2s_isr, NULL);
+    intr_matrix_set(0, ETS_I2S0_INTR_SOURCE, ETS_I2S0_INUM);
 
-    DCMIHandle.Init.SynchroMode = DCMI_SYNCHRO_HARDWARE;    // Enable Hardware synchronization
-    DCMIHandle.Init.CaptureRate = DCMI_CR_ALL_FRAME;        // Capture rate all frames
-    DCMIHandle.Init.ExtendedDataMode = DCMI_EXTEND_DATA_8B; // Capture 8 bits on every pixel clock
-    DCMIHandle.Init.JPEGMode = jpeg_mode;                   // Set JPEG Mode
-    #if defined(STM32F765xx) || defined(STM32F769xx)
-    DCMIHandle.Init.ByteSelectMode  = DCMI_BSM_ALL;         // Capture all received bytes
-    DCMIHandle.Init.ByteSelectStart = DCMI_OEBS_ODD;        // Ignored
-    DCMIHandle.Init.LineSelectMode  = DCMI_LSM_ALL;         // Capture all received lines
-    DCMIHandle.Init.LineSelectStart = DCMI_OELS_ODD;        // Ignored
-    #endif
+    gpio_num_t pins[] = {
+            s_config.pin_d7,
+            s_config.pin_d6,
+            s_config.pin_d5,
+            s_config.pin_d4,
+            s_config.pin_d3,
+            s_config.pin_d2,
+            s_config.pin_d1,
+            s_config.pin_d0,
+            s_config.pin_vsync,
+            s_config.pin_href,
+            s_config.pin_pclk
+    };
 
-    // Associate the DMA handle to the DCMI handle
-    __HAL_LINKDMA(&DCMIHandle, DMA_Handle, DMAHandle);
-
-   // Initialize the DCMI
-    HAL_DCMI_DeInit(&DCMIHandle);
-    if (HAL_DCMI_Init(&DCMIHandle) != HAL_OK) {
-        // Initialization Error
-        return -1;
+    gpio_config_t conf = {
+            .mode = GPIO_MODE_INPUT,
+            .pull_up_en = GPIO_PULLUP_DISABLE,
+            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .intr_type = GPIO_INTR_DISABLE
+    };
+    for (int i = 0; i < sizeof(pins)/sizeof(gpio_num_t); ++i) {
+        conf.pin_bit_mask = 1LL << pins[i];
+        gpio_config(&conf);
     }
 
-    // Configure and enable DCMI IRQ Channel
-    HAL_NVIC_SetPriority(DCMI_IRQn, IRQ_PRI_DCMI, IRQ_SUBPRI_DCMI);
-    HAL_NVIC_EnableIRQ(DCMI_IRQn);
-    return 0;
+    gpio_matrix_in(s_config.pin_d0,    I2S0I_DATA_IN0_IDX, false);
+    gpio_matrix_in(s_config.pin_d1,    I2S0I_DATA_IN1_IDX, false);
+    gpio_matrix_in(s_config.pin_d2,    I2S0I_DATA_IN2_IDX, false);
+    gpio_matrix_in(s_config.pin_d3,    I2S0I_DATA_IN3_IDX, false);
+    gpio_matrix_in(s_config.pin_d4,    I2S0I_DATA_IN4_IDX, false);
+    gpio_matrix_in(s_config.pin_d5,    I2S0I_DATA_IN5_IDX, false);
+    gpio_matrix_in(s_config.pin_d6,    I2S0I_DATA_IN6_IDX, false);
+    gpio_matrix_in(s_config.pin_d7,    I2S0I_DATA_IN7_IDX, false);
+    gpio_matrix_in(s_config.pin_vsync, I2S0I_V_SYNC_IDX, false);
+    gpio_matrix_in(0x38, I2S0I_H_SYNC_IDX, false);
+    gpio_matrix_in(s_config.pin_href,  I2S0I_H_ENABLE_IDX, false);
+    gpio_matrix_in(s_config.pin_pclk,  I2S0I_WS_IN_IDX, false);
+
+    periph_module_enable(PERIPH_I2S0_MODULE);
+
+    SET_PERI_REG_BITS(I2S_LC_CONF_REG(0), 0x1, 1, I2S_IN_RST_S);
+    SET_PERI_REG_BITS(I2S_LC_CONF_REG(0), 0x1, 0, I2S_IN_RST_S);
+    SET_PERI_REG_BITS(I2S_LC_CONF_REG(0), 0x1, 1, I2S_AHBM_RST_S);
+    SET_PERI_REG_BITS(I2S_LC_CONF_REG(0), 0x1, 0, I2S_AHBM_RST_S);
+    SET_PERI_REG_BITS(I2S_LC_CONF_REG(0), 0x1, 1, I2S_AHBM_FIFO_RST_S);
+    SET_PERI_REG_BITS(I2S_LC_CONF_REG(0), 0x1, 0, I2S_AHBM_FIFO_RST_S);
+    SET_PERI_REG_BITS(I2S_CONF_REG(0), 0x1, 1, I2S_RX_RESET_S);
+    SET_PERI_REG_BITS(I2S_CONF_REG(0), 0x1, 0, I2S_RX_RESET_S);
+    SET_PERI_REG_BITS(I2S_CONF_REG(0), 0x1, 1, I2S_RX_FIFO_RESET_S);
+    SET_PERI_REG_BITS(I2S_CONF_REG(0), 0x1, 0, I2S_RX_FIFO_RESET_S);
+
+    SET_PERI_REG_BITS(I2S_CONF_REG(0), 0x1, 1, I2S_RX_SLAVE_MOD_S);
+    SET_PERI_REG_BITS(I2S_CONF2_REG(0), 0x1, 1, I2S_LCD_EN_S);
+    SET_PERI_REG_BITS(I2S_CONF2_REG(0), 0x1, 1, I2S_CAMERA_EN_S);
+    SET_PERI_REG_BITS(I2S_CLKM_CONF_REG(0), I2S_CLKM_DIV_A, 1, I2S_CLKM_DIV_A_S);
+    SET_PERI_REG_BITS(I2S_CLKM_CONF_REG(0), I2S_CLKM_DIV_B, 0, I2S_CLKM_DIV_B_S);
+    SET_PERI_REG_BITS(I2S_CLKM_CONF_REG(0), I2S_CLKM_DIV_NUM, 2, I2S_CLKM_DIV_NUM_S);
+
+    SET_PERI_REG_BITS(I2S_FIFO_CONF_REG(0), 0x1, 1, I2S_DSCR_EN_S);
+
+    SET_PERI_REG_BITS(I2S_CONF_REG(0), 0x1, 1, I2S_RX_RIGHT_FIRST_S);
+    SET_PERI_REG_BITS(I2S_CONF_REG(0), 0x1, 1, I2S_RX_MSB_RIGHT_S);
+    SET_PERI_REG_BITS(I2S_CONF_REG(0), 0x1, 0, I2S_RX_MSB_SHIFT_S);
+    SET_PERI_REG_BITS(I2S_CONF_REG(0), 0x1, 0, I2S_RX_MONO_S);
+    SET_PERI_REG_BITS(I2S_CONF_REG(0), 0x1, 0, I2S_RX_SHORT_SYNC_S);
+    SET_PERI_REG_BITS(I2S_FIFO_CONF_REG(0), I2S_RX_FIFO_MOD, 1, I2S_RX_FIFO_MOD_S);
+    SET_PERI_REG_BITS(I2S_FIFO_CONF_REG(0), 0x1, 1, I2S_RX_FIFO_MOD_FORCE_EN_S);
+    SET_PERI_REG_BITS(I2S_CONF_CHAN_REG(0), I2S_RX_CHAN_MOD, 1, I2S_RX_CHAN_MOD_S);
+    SET_PERI_REG_BITS(I2S_SAMPLE_RATE_CONF_REG(0), I2S_RX_BITS_MOD, 16, I2S_RX_BITS_MOD_S);
+
+}
+
+static void i2s_fill_buf(int index) {
+    ESP_INTR_DISABLE(ETS_I2S0_INUM);
+
+    SET_PERI_REG_BITS(I2S_RXEOF_NUM_REG(0), I2S_RX_EOF_NUM, (buf_line_width - 2) * 2, I2S_RX_EOF_NUM_S);
+    SET_PERI_REG_BITS(I2S_IN_LINK_REG(0), I2S_INLINK_ADDR, ((uint32_t) &s_dma_desc), I2S_INLINK_ADDR_S);
+    SET_PERI_REG_BITS(I2S_IN_LINK_REG(0), 0x1, 1, I2S_INLINK_START_S);
+
+    REG_WRITE(I2S_INT_CLR_REG(0), (REG_READ(I2S_INT_RAW_REG(0)) & 0xffffffc0) | 0x3f);
+
+    REG_WRITE(I2S_CONF_REG(0), REG_READ(I2S_CONF_REG(0)) & 0xfffffff0);
+    (void) REG_READ(I2S_CONF_REG(0));
+    REG_WRITE(I2S_CONF_REG(0), (REG_READ(I2S_CONF_REG(0)) & 0xfffffff0) | 0xf);
+    (void) REG_READ(I2S_CONF_REG(0));
+    REG_WRITE(I2S_CONF_REG(0), REG_READ(I2S_CONF_REG(0)) & 0xfffffff0);
+    while (GET_PERI_REG_BITS2(I2S_STATE_REG(0), 0x1, I2S_TX_FIFO_RESET_BACK_S));
+
+    SET_PERI_REG_BITS(I2S_INT_ENA_REG(0), 0x1, 1, I2S_IN_DONE_INT_ENA_S);
+    ESP_INTR_ENABLE(ETS_I2S0_INUM);
+    SET_PERI_REG_BITS(I2S_CONF_REG(0), 0x1, 1, I2S_RX_START_S);
+}
+
+static void i2s_stop() {
+    ESP_INTR_DISABLE(ETS_I2S0_INUM);
+
+    REG_WRITE(I2S_CONF_REG(0), REG_READ(I2S_CONF_REG(0)) & 0xfffffff0);
+    (void) REG_READ(I2S_CONF_REG(0));
+    REG_WRITE(I2S_CONF_REG(0), (REG_READ(I2S_CONF_REG(0)) & 0xfffffff0) | 0xf);
+    (void) REG_READ(I2S_CONF_REG(0));
+    REG_WRITE(I2S_CONF_REG(0), REG_READ(I2S_CONF_REG(0)) & 0xfffffff0);
+
+    SET_PERI_REG_BITS(I2S_CONF_REG(0), 0x1, 0, I2S_RX_START_S);
+    i2s_running = false;
+}
+
+static void i2s_run(size_t line_width, int height)
+{
+    buf_line_width = line_width;
+    buf_height = height;
+
+    // wait for vsync
+    ESP_LOGD(TAG, "Waiting for VSYNC");
+    while(gpio_get_level(s_config.pin_vsync) != 0);
+    while(gpio_get_level(s_config.pin_vsync) == 0);
+    ESP_LOGD(TAG, "Got VSYNC");
+    // wait a bit
+    delay(2);
+
+    // start RX
+    cur_buffer = 0;
+    line_count = 0;
+    isr_count = 0;
+    i2s_running = true;
+    i2s_fill_buf(cur_buffer);
 }
 
 static int dma_config()
