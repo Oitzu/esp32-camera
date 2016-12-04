@@ -39,10 +39,29 @@
 
 #define MAX_XFER_SIZE (0xFFFC)
 
+static const char* TAG = "camera";
+
 sensor_t sensor;
 
-static int line = 0;
-extern uint8_t _line_buf;
+static camera_config_t s_config;
+static lldesc_t s_dma_desc[2];
+static uint32_t* s_dma_buf[2];
+static uint8_t* s_fb;
+static sensor_t s_sensor;
+static bool s_initialized = false;
+static int s_fb_w;
+static int s_fb_h;
+static size_t s_fb_size;
+
+static volatile int isr_count = 0;
+static volatile int line_count = 0;
+static volatile int cur_buffer = 0;
+static int buf_line_width;
+static int buf_height;
+static volatile bool i2s_running = 0;
+static SemaphoreHandle_t data_ready;
+static SemaphoreHandle_t frame_ready;
+
 
 const int resolution[][2] = {
     {40,    30 },    /* 40x30 */
