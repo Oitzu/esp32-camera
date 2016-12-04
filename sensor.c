@@ -80,6 +80,12 @@ const int resolution[][2] = {
     {1600,  1200},   /* UXGA  */
 };
 
+static void i2s_init();
+static void i2s_run(size_t line_width, int height);
+static void IRAM_ATTR i2s_isr(void* arg);
+static esp_err_t dma_desc_init(int line_width);
+static void line_filter_task(void *pvParameters);
+
 static int extclk_config(int frequency, int pin)
 {
     //Enable LEDC 

@@ -81,6 +81,29 @@ typedef enum {
     ACTIVE_HIGH
 } reset_polarity_t;
 
+typedef struct {
+    int pin_reset;          /*!< GPIO pin for camera reset line */
+    int pin_xclk;           /*!< GPIO pin for camera XCLK line */
+    int pin_sscb_sda;       /*!< GPIO pin for camera SDA line */
+    int pin_sscb_scl;       /*!< GPIO pin for camera SCL line */
+    int pin_d7;             /*!< GPIO pin for camera D7 line */
+    int pin_d6;             /*!< GPIO pin for camera D6 line */
+    int pin_d5;             /*!< GPIO pin for camera D5 line */
+    int pin_d4;             /*!< GPIO pin for camera D4 line */
+    int pin_d3;             /*!< GPIO pin for camera D3 line */
+    int pin_d2;             /*!< GPIO pin for camera D2 line */
+    int pin_d1;             /*!< GPIO pin for camera D1 line */
+    int pin_d0;             /*!< GPIO pin for camera D0 line */
+    int pin_vsync;          /*!< GPIO pin for camera VSYNC line */
+    int pin_href;           /*!< GPIO pin for camera HREF line */
+    int pin_pclk;           /*!< GPIO pin for camera PCLK line */
+
+    int xclk_freq_hz;       /*!< Frequency of XCLK signal, in Hz */
+
+    ledc_timer_t ledc_timer;        /*!< LEDC timer to be used for generating XCLK  */
+    ledc_channel_t ledc_channel;    /*!< LEDC channel to be used for generating XCLK  */
+} camera_config_t;
+
 typedef void (*line_filter_t) (uint8_t *src, int src_stride, uint8_t *dst, int dst_stride, void *args);
 
 #define SENSOR_HW_FLAGS_VSYNC        (0) // vertical sync polarity.
