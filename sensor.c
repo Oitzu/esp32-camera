@@ -1,11 +1,30 @@
 /*
- * This file is part of the OpenMV project.
+ * Portions of this file is part of the OpenMV project. (see sensor_* functions in the end of file)
  * Copyright (c) 2013/2014 Ibrahim Abdelkader <i.abdalkader@gmail.com>
  * This work is licensed under the MIT license, see the file LICENSE for details.
  *
  * Sensor abstraction layer.
- *
  */
+ 
+ /*
+ * 
+ * DMA, I2S and transfer handling is from the esp32-demo-cam project https://github.com/igrr/esp32-cam-demo
+ *
+ * Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+ 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -397,8 +416,6 @@ int sensor_reset()
     // Call sensor-specific reset function
     sensor.reset(&sensor);
 
-    // Just in case there's a running DMA request.
-    HAL_DMA_Abort(&DMAHandle);
     return 0;
 }
 
@@ -466,15 +483,6 @@ int sensor_set_framesize(framesize_t framesize)
     // Skip the first frame.
     fb->bpp = 0;
 
-    if (framesize > OMV_MAX_RAW_FRAME) {
-        // Crop higher resolutions to QVGA
-        sensor_set_windowing(190, 120, 320, 240);
-    } else {
-        fb->w = resolution[framesize][0];
-        fb->h = resolution[framesize][1];
-        HAL_DCMI_DisableCROP(&DCMIHandle);
-    }
-
     return 0;
 }
 
@@ -495,15 +503,6 @@ int sensor_set_framerate(framerate_t framerate)
     /* set the frame rate */
     sensor.framerate = framerate;
 
-    return 0;
-}
-
-int sensor_set_windowing(int x, int y, int w, int h)
-{
-    fb->w = w;
-    fb->h = h;
-    HAL_DCMI_ConfigCROP(&DCMIHandle, x*2, y, w*2-1, h-1);
-    HAL_DCMI_EnableCROP(&DCMIHandle);
     return 0;
 }
 
@@ -649,120 +648,5 @@ int sensor_set_line_filter(line_filter_t line_filter_func, void *line_filter_arg
     // Set line pre-processing function and args
     sensor.line_filter_func = line_filter_func;
     sensor.line_filter_args = line_filter_args;
-    return 0;
-}
-
-// This function is called back after each line transfer is complete,
-// with a pointer to the line buffer that was used. At this point the
-// DMA transfers the next line to the other half of the line buffer.
-// Note:  For JPEG this function is called once (and ignored) at the end of the transfer.
-void DCMI_DMAConvCpltUser(uint32_t addr)
-{
-    uint8_t *src = (uint8_t*) addr;
-    uint8_t *dst = fb->pixels;
-
-    if (sensor.line_filter_func && sensor.line_filter_args) {
-        int bpp = ((sensor.pixformat == PIXFORMAT_GRAYSCALE) ? 1:2);
-        dst += line++ * fb->w * bpp;
-        // If there's an image filter installed call it.
-        // Note: BPP is the target BPP, not the line bpp (the line is always 2 bytes per pixel) if the target BPP is 1
-        // it means the image currently being read is going to be Grayscale, and the function needs to output w * 1BPP.
-        sensor.line_filter_func(src, fb->w * 2 , dst, fb->w * bpp, sensor.line_filter_args);
-    } else {
-        // Else just process the line normally.
-        if (sensor.pixformat == PIXFORMAT_GRAYSCALE) {
-            dst += line++ * fb->w;
-            // If GRAYSCALE extract Y channel from YUV
-            for (int i=0; i<fb->w; i++) {
-                dst[i] = src[i<<1];
-            }
-        } else if (sensor.pixformat == PIXFORMAT_RGB565) {
-            dst += line++ * fb->w * 2;
-            for (int i=0; i<fb->w * 2; i++) {
-                dst[i] = src[i];
-            }
-        }
-    }
-}
-
-int sensor_snapshot(image_t *image, line_filter_t line_filter_func, void *line_filter_args)
-{
-    static int overflow_count = 0;
-    uint32_t addr, length, tick_start;
-
-    // Set line filter
-    sensor_set_line_filter(line_filter_func, line_filter_args);
-
-    // Setup the size and address of the transfer
-    if (sensor.pixformat == PIXFORMAT_JPEG) {
-        // Sensor has hardware JPEG set max frame size.
-        length = MAX_XFER_SIZE;
-        addr = (uint32_t) (fb->pixels);
-    } else {
-        // No hardware JPEG, set w*h*2 bytes per pixel.
-        length =(fb->w * fb->h * 2)/4;
-        addr = (uint32_t) &_line_buf;
-    }
-
-    // Clear line counter
-    line = 0;
-
-    // Snapshot start tick
-    tick_start = HAL_GetTick();
-
-    // Enable DMA IRQ
-    HAL_NVIC_EnableIRQ(DMA2_Stream1_IRQn);
-
-    if (sensor.pixformat == PIXFORMAT_JPEG) {
-        // Start a regular transfer
-        HAL_DCMI_Start_DMA(&DCMIHandle,
-                DCMI_MODE_SNAPSHOT, addr, length);
-    } else {
-        // Start a multibuffer transfer (line by line)
-        HAL_DCMI_Start_DMA_MB(&DCMIHandle,
-                DCMI_MODE_SNAPSHOT, addr, length, fb->h);
-    }
-
-    // Wait for frame
-    while ((DCMI->CR & DCMI_CR_CAPTURE) != 0) {
-        if ((HAL_GetTick() - tick_start) >= 3000) {
-            // Sensor timeout, most likely a HW issue.
-            // Abort the DMA request.
-            HAL_DMA_Abort(&DMAHandle);
-            return -1;
-        }
-    }
-
-    // Abort DMA transfer.
-    // Note: In JPEG mode the DMA will still be waiting for data since
-    // the max frame size is set, so we need to abort the DMA transfer.
-    HAL_DMA_Abort(&DMAHandle);
-
-    // Disable DMA IRQ
-    HAL_NVIC_DisableIRQ(DMA2_Stream1_IRQn);
-
-    // Fix the BPP
-    switch (sensor.pixformat) {
-        case PIXFORMAT_GRAYSCALE:
-            fb->bpp = 1;
-            break;
-        case PIXFORMAT_YUV422:
-        case PIXFORMAT_RGB565:
-            fb->bpp = 2;
-            break;
-        case PIXFORMAT_JPEG:
-            // Read the number of data items transferred
-            fb->bpp = (MAX_XFER_SIZE - DMAHandle.Instance->NDTR)*4;
-            break;
-    }
-
-    // Set the user image.
-    if (image != NULL) {
-        image->w = fb->w;
-        image->h = fb->h;
-        image->bpp = fb->bpp;
-        image->pixels = fb->pixels;
-    }
-
     return 0;
 }
