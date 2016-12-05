@@ -40,9 +40,17 @@
 #include "soc/i2s_reg.h"
 #include "soc/io_mux_reg.h"
 #include "sensor.h"
-#include "ov9650.h"
-#include "ov2640.h"
-#include "ov7725.h"
+
+#if CONFIG_OV9650_SUPPORT
+    #include "ov9650.h"
+#endif
+#if CONFIG_OV2640_SUPPORT
+    #include "ov2640.h"
+#endif
+#if CONFIG_OV7725_SUPPORT
+    #include "ov7725.h"
+#endif
+
 #include "rom/lldesc.h"
 #include "esp_intr.h"
 #include "camera.h"
@@ -356,18 +364,25 @@ esp_err_t init(const camera_config_t* config)
 
     /* Call the sensor-specific init function */
     switch (sensor.id.PID) {
+#if CONFIG_OV9650_SUPPORT
         case OV9650_PID:
             ov9650_init(&sensor);
             break;
+#endif
+#if CONFIG_OV2640_SUPPORT
         case OV2640_PID:
             ov2640_init(&sensor);
             break;
+#endif
+#if CONFIG_OV7725_SUPPORT
         case OV7725_PID:
             ov7725_init(&sensor);
             break;
+#endif
         default:
             /* Sensor not supported */
-            return -3;
+            ESP_LOGD(TAG, "Detected camera not supported.");
+            return ESP_ERR_CAMERA_NOT_SUPPORTED;
     }
     
     /* Creating data and frame semaphore */

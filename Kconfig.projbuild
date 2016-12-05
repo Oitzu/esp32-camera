@@ -1,18 +1,25 @@
 menu "Camera Configuration"
 
-choice
-	prompt "Choose a camera"
-	config OV2640
-		bool "OV2640"
-	config OV7725
-		bool "OV7725"
-	config OV9650
-		bool "OV9650"
-endchoice
+config OV2640_SUPPORT
+	bool "OV2640 Support"
+	default y
+	help
+		Enable this option if you want to use the OV2640.
+		Disable this option off to safe memory.
 
-config CAMERA
-	int
-		default 1
-		default 2 if OV7725
-		default 3 if OV9650
+config OV7725_SUPPORT
+	bool "OV7725 Support"
+	default y
+	help
+		Enable this option if you want to use the OV7725.
+		Disable this option off to safe memory.
+
+config OV9650_SUPPORT
+	bool "OV9650 Support"
+	default y
+	help
+		Enable this option if you want to use the OV9650.
+		Disable this option off to safe memory.
+
+
 endmenu
