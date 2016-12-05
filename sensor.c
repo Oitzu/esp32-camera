@@ -272,14 +272,6 @@ static void i2s_run(size_t line_width, int height)
     i2s_fill_buf(cur_buffer);
 }
 
-void sensor_init0()
-{
-
-    // Clear framebuffers
-    memset(MAIN_FB(), 0, sizeof(*MAIN_FB()));
-    memset(JPEG_FB(), 0, sizeof(*JPEG_FB()));
-}
-
 esp_err_t init(const camera_config_t* config)
 {
     memcpy(&s_config, config, sizeof(s_config)); //Copy config
