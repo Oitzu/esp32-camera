@@ -110,7 +110,8 @@ const int resolution[][2] = {
 static void i2s_init();
 static void i2s_run(size_t line_width, int height);
 static void IRAM_ATTR i2s_isr(void* arg);
-static esp_err_t dma_desc_init(int line_width);
+static esp_err_t dma_desc_init(size_t buf_size);
+static esp_err_t dma_buf_realloc(size_t buf_size);
 static void fb_filler_task(void *pvParameters);
 
 static int extclk_config(int frequency, int pin)
@@ -144,6 +145,41 @@ static int extclk_config(int frequency, int pin)
     }
 
     return 0;
+}
+
+static esp_err_t dma_desc_init(size_t buf_size)
+{
+    /* I2S peripheral captures 16 bit of data every clock cycle,
+    even though we are only using 8 bits.
+    On top of that we need two bytes per pixel.
+    */
+    for (int i = 0; i < 2; ++i) {
+        ESP_LOGD(TAG, "Allocating DMA buffer #%d, size=%d", i, buf_size);
+        s_dma_buf[i] = (uint32_t*) malloc(buf_size);
+        if (s_dma_buf[i] == NULL) {
+            return ESP_ERR_NO_MEM;
+        }
+        ESP_LOGV(TAG, "dma_buf[%d]=%p\n", i, s_dma_buf[i]);
+
+        s_dma_desc[i].length = buf_size;     // size of a single DMA buf
+        s_dma_desc[i].size = buf_size;       // total size of the chain
+        s_dma_desc[i].owner = 1;
+        s_dma_desc[i].sosf = 1;
+        s_dma_desc[i].buf = (uint8_t*) s_dma_buf[i];
+        s_dma_desc[i].offset = i;
+        s_dma_desc[i].empty = 0;
+        s_dma_desc[i].eof = 1;
+        s_dma_desc[i].qe.stqe_next = NULL;
+    }
+    return ESP_OK;
+}
+
+static esp_err_t dma_buf_realloc(size_t buf_size)
+{
+    for (int i = 0; i < 2; ++i) {
+        ESP_LOGD(TAG, "Reallocating DMA buffer #%d, size=%d", i, buf_size);
+        realloc(s_dma_buf[i], buf_size);
+    }
 }
 
 #define ETS_I2S0_INUM 13 //https://github.com/espressif/esp-idf/blob/master/components/esp32/include/soc/soc.h#L259-L294
@@ -385,6 +421,14 @@ esp_err_t init(const camera_config_t* config)
             return ESP_ERR_CAMERA_NOT_SUPPORTED;
     }
     
+    /* Allocating buffers */
+    s_fb_w = resolution[sensor.framesize][0];
+    s_fb_h = resolution[sensor.framesize][1];
+    
+    s_fb_size = s_fb_w * s_fb_h;
+    s_fb = (uint8_t*) malloc(s_fb_size);
+    dma_desc_init(s_fb_w * 4);
+    
     /* Creating data and frame semaphore */
     data_ready = xSemaphoreCreateBinary();
     frame_ready = xSemaphoreCreateBinary();
@@ -515,6 +559,13 @@ int sensor_set_framesize(framesize_t framesize)
 
     // Set framebuffer size
     sensor.framesize = framesize;
+    
+    //realloc memory
+    s_fb_w = resolution[sensor.framesize][0];
+    s_fb_h = resolution[sensor.framesize][1];
+    s_fb_size = s_fb_w * s_fb_h;
+    realloc(s_fb, s_fb_size);
+    dma_buf_realloc(s_fb_w * 4);
 
     // Skip the first frame.
     fb->bpp = 0;
