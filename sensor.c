@@ -429,6 +429,23 @@ static void fb_filler_task(void *pvParameters) {
     }
 }
 
+static void IRAM_ATTR i2s_isr(void* arg) {
+    REG_WRITE(I2S_INT_CLR_REG(0), (REG_READ(I2S_INT_RAW_REG(0)) & 0xffffffc0) | 0x3f);
+    cur_buffer = !cur_buffer;
+    if (isr_count == buf_height - 2) {
+        i2s_stop();
+    }
+    else {
+        i2s_fill_buf(cur_buffer);
+        ++isr_count;
+    }
+    static BaseType_t xHigherPriorityTaskWoken;
+    xSemaphoreGiveFromISR(data_ready, &xHigherPriorityTaskWoken);
+    if (xHigherPriorityTaskWoken != pdFALSE) {
+        portYIELD_FROM_ISR();
+    }
+}
+
 int sensor_reset()
 {
     // Reset the sesnor state
