@@ -74,17 +74,15 @@ static camera_config_t s_config;
 static lldesc_t s_dma_desc[2];
 static uint32_t* s_dma_buf[2];
 static uint8_t* s_fb;
-static sensor_t s_sensor;
 static bool s_initialized = false;
 static int s_fb_w;
 static int s_fb_h;
 static size_t s_fb_size;
+static int bpp;                     //bytes per pixel
 
 static volatile int isr_count = 0;
 static volatile int line_count = 0;
 static volatile int cur_buffer = 0;
-static int buf_line_width;
-static int buf_height;
 static volatile bool i2s_running = 0;
 static SemaphoreHandle_t data_ready;
 static SemaphoreHandle_t frame_ready;
@@ -264,7 +262,7 @@ static void i2s_init()
 static void i2s_fill_buf(int index) {
     ESP_INTR_DISABLE(ETS_I2S0_INUM);
 
-    SET_PERI_REG_BITS(I2S_RXEOF_NUM_REG(0), I2S_RX_EOF_NUM, (buf_line_width - 2) * 2, I2S_RX_EOF_NUM_S);
+    SET_PERI_REG_BITS(I2S_RXEOF_NUM_REG(0), I2S_RX_EOF_NUM, (s_fb_w - 2) * 2, I2S_RX_EOF_NUM_S);
     SET_PERI_REG_BITS(I2S_IN_LINK_REG(0), I2S_INLINK_ADDR, ((uint32_t) &s_dma_desc[index]), I2S_INLINK_ADDR_S);
     SET_PERI_REG_BITS(I2S_IN_LINK_REG(0), 0x1, 1, I2S_INLINK_START_S);
 
@@ -297,9 +295,6 @@ static void i2s_stop() {
 
 static void i2s_run(size_t line_width, int height)
 {
-    buf_line_width = line_width;
-    buf_height = height;
-
     // wait for vsync
     ESP_LOGD(TAG, "Waiting for VSYNC");
     while(gpio_get_level(s_config.pin_vsync) != 0);
@@ -421,13 +416,16 @@ esp_err_t init(const camera_config_t* config)
             return ESP_ERR_CAMERA_NOT_SUPPORTED;
     }
     
+    /* Set bytes per pixel */
+    bpp = 2;
+    
     /* Allocating buffers */
-    s_fb_w = resolution[sensor.framesize][0];
+    s_fb_w = resolution[sensor.framesize][0] * bpp;
     s_fb_h = resolution[sensor.framesize][1];
     
     s_fb_size = s_fb_w * s_fb_h;
     s_fb = (uint8_t*) malloc(s_fb_size);
-    dma_desc_init(s_fb_w * 4);
+    dma_desc_init(s_fb_w * 2);              //We need the dma buffer twice the size because i2s captures 16bit per cycle.
     
     /* Creating data and frame semaphore */
     data_ready = xSemaphoreCreateBinary();
@@ -449,9 +447,9 @@ static void fb_filler_task(void *pvParameters) {
         if (prev_buf != -1 && prev_buf == buf_idx) {
             ets_printf("! %d\n", line_count);               //We probably processing the same frame a second time.
         }
-        uint8_t* pfb = s_fb + line_count * buf_line_width;  //Get pointer of target buffer for current line
+        uint8_t* pfb = s_fb + line_count * s_fb_w;  //Get pointer of target buffer for current line
         const uint32_t* buf = s_dma_buf[buf_idx];           //Get pointer of the source buffer
-        for (int i = 0; i < buf_line_width; ++i) {
+        for (int i = 0; i < s_fb_w; ++i) {
             uint32_t v = *buf;                              //Extract 4 bytes from the source buffer
             uint8_t comp = (v & 0xff0000) >> 16;            //For luminance only we only want the 3. byte
             *pfb = comp;                                    //Write byte to target buffer
@@ -470,7 +468,7 @@ static void fb_filler_task(void *pvParameters) {
 static void IRAM_ATTR i2s_isr(void* arg) {
     REG_WRITE(I2S_INT_CLR_REG(0), (REG_READ(I2S_INT_RAW_REG(0)) & 0xffffffc0) | 0x3f);
     cur_buffer = !cur_buffer;
-    if (isr_count == buf_height - 2) {
+    if (isr_count == s_fb_h - 2) {
         i2s_stop();
     }
     else {
@@ -561,14 +559,11 @@ int sensor_set_framesize(framesize_t framesize)
     sensor.framesize = framesize;
     
     //realloc memory
-    s_fb_w = resolution[sensor.framesize][0];
+    s_fb_w = resolution[sensor.framesize][0] * 2;
     s_fb_h = resolution[sensor.framesize][1];
     s_fb_size = s_fb_w * s_fb_h;
     realloc(s_fb, s_fb_size);
     dma_buf_realloc(s_fb_w * 4);
-
-    // Skip the first frame.
-    fb->bpp = 0;
 
     return 0;
 }
