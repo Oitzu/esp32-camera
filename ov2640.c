@@ -9,9 +9,9 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <wiring.h>
 #include "sccb.h"
 #include "ov2640.h"
-#include "systick.h"
 #include "ov2640_regs.h"
 
 #define SVGA_HSIZE     (800)

@@ -53,10 +53,8 @@
 
 #include "rom/lldesc.h"
 #include "esp_intr.h"
-#include "camera.h"
 #include "esp_log.h"
 #include "driver/periph_ctrl.h"
-#include "framebuffer.h"
 
 #define REG_PID        0x0A
 #define REG_VER        0x0B
@@ -79,6 +77,7 @@ static int s_fb_w;
 static int s_fb_h;
 static size_t s_fb_size;
 static int bpp;                     //bytes per pixel
+static bool jpeg_mode;
 
 static volatile int isr_count = 0;
 static volatile int line_count = 0;
@@ -177,7 +176,11 @@ static esp_err_t dma_buf_realloc(size_t buf_size)
     for (int i = 0; i < 2; ++i) {
         ESP_LOGD(TAG, "Reallocating DMA buffer #%d, size=%d", i, buf_size);
         realloc(s_dma_buf[i], buf_size);
+        if (s_dma_buf[i] == NULL) {
+            return ESP_ERR_NO_MEM;
+        }
     }
+    return ESP_OK;
 }
 
 #define ETS_I2S0_INUM 13 //https://github.com/espressif/esp-idf/blob/master/components/esp32/include/soc/soc.h#L259-L294
@@ -323,7 +326,7 @@ esp_err_t init(const camera_config_t* config)
     systick_sleep(10);
 
     /* Initialize the SCCB interface */
-    SCCB_Init();
+    SCCB_Init(s_config.pin_sscb_sda, s_config.pin_sscb_scl);
     systick_sleep(10);
 
     // Configure the sensor external clock (XCLK) to XCLK_FREQ.
@@ -344,7 +347,7 @@ esp_err_t init(const camera_config_t* config)
     //
     ESP_LOGD(TAG, "Enabling XCLK output");
     // Configure external clock timer.
-    if (extclk_config(s_config.xclk_freq_hz) != 0) {
+    if (extclk_config(s_config.xclk_freq_hz, s_config.pin_xclk) != 0) {
         // Timer problem
         return -1;
     }
@@ -426,6 +429,14 @@ esp_err_t init(const camera_config_t* config)
     s_fb_size = s_fb_w * s_fb_h;
     s_fb = (uint8_t*) malloc(s_fb_size);
     dma_desc_init(s_fb_w * 2);              //We need the dma buffer twice the size because i2s captures 16bit per cycle.
+    
+    ESP_LOGD(TAG, "Initializing I2S and DMA");
+    i2s_init();
+    esp_err_t err = dma_desc_init(s_fb_w);
+    if (err != ESP_OK) {
+        free(s_fb);
+        return err;
+    }
     
     /* Creating data and frame semaphore */
     data_ready = xSemaphoreCreateBinary();
@@ -514,9 +525,9 @@ int sensor_write_reg(uint8_t reg, uint8_t val)
 
 int sensor_set_pixformat(pixformat_t pixformat)
 {
-    uint32_t jpeg_mode = DCMI_JPEG_DISABLE;
+    jpeg_mode = false;
 
-   if (sensor.pixformat == pixformat) {
+    if (sensor.pixformat == pixformat) {
         // No change
         return 0;
     }
@@ -532,13 +543,10 @@ int sensor_set_pixformat(pixformat_t pixformat)
 
     // Set JPEG mode
     if (pixformat == PIXFORMAT_JPEG) {
-        jpeg_mode = DCMI_JPEG_ENABLE;
+        jpeg_mode = true;
     }
 
-    // Skip the first frame.
-    fb->bpp = 0;
-
-    return dcmi_config(jpeg_mode);
+    return ESP_OK;
 }
 
 int sensor_set_framesize(framesize_t framesize)

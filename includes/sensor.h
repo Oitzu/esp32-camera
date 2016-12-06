@@ -9,6 +9,7 @@
 #ifndef __SENSOR_H__
 #define __SENSOR_H__
 #include <stdint.h>
+#include "driver/ledc.h"
 
 #define OV9650_PID     (0x96)
 #define OV2640_PID     (0x26)
@@ -103,6 +104,11 @@ typedef struct {
     ledc_timer_t ledc_timer;        /*!< LEDC timer to be used for generating XCLK  */
     ledc_channel_t ledc_channel;    /*!< LEDC channel to be used for generating XCLK  */
 } camera_config_t;
+
+#define ESP_ERR_CAMERA_BASE 0x20000
+#define ESP_ERR_CAMERA_NOT_DETECTED             (ESP_ERR_CAMERA_BASE + 1)
+#define ESP_ERR_CAMERA_FAILED_TO_SET_FRAME_SIZE (ESP_ERR_CAMERA_BASE + 2)
+#define ESP_ERR_CAMERA_NOT_SUPPORTED (ESP_ERR_CAMERA_BASE + 3)
 
 typedef void (*line_filter_t) (uint8_t *src, int src_stride, uint8_t *dst, int dst_stride, void *args);
 
@@ -226,6 +232,4 @@ int sensor_set_special_effect(sde_t sde);
 // Set filter function.
 int sensor_set_line_filter(line_filter_t line_filter_func, void *line_filter_args);
 
-// Capture a Snapshot.
-int sensor_snapshot(image_t *image, line_filter_t line_filter_func, void *line_filter_args);
 #endif /* __SENSOR_H__ */

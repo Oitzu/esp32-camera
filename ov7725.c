@@ -9,9 +9,9 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <wiring.h>
 #include "sccb.h"
 #include "ov7725.h"
-#include "systick.h"
 #include "ov7725_regs.h"
 
 static const uint8_t default_regs[][2] = {

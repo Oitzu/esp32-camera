@@ -10,8 +10,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include "sccb.h"
+#include <wiring.h>
 #include "ov9650.h"
-#include "systick.h"
 #include "ov9650_regs.h"
 
 #define NUM_BR_LEVELS       7
