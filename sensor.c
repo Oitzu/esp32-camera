@@ -403,26 +403,20 @@ static void fb_filler_task(void *pvParameters) {
         xSemaphoreTake(data_ready, portMAX_DELAY);
         int buf_idx = !cur_buffer;
         if (prev_buf != -1 && prev_buf == buf_idx) {
-            ets_printf("! %d\n", line_count);
+            ets_printf("! %d\n", line_count);               //We probably processing the same frame a second time.
         }
-        uint8_t* pfb = s_fb + line_count * buf_line_width;
-        if (line_count & 1) {
-            uint8_t* psrc = s_fb + (line_count - 1) * buf_line_width;
-            memcpy(pfb, psrc, buf_line_width);
-        }
-        else {
-            const uint32_t* buf = s_dma_buf[buf_idx];
-            for (int i = 0; i < buf_line_width; ++i) {
-                uint32_t v = *buf;
-                uint8_t comp = (v & 0xff0000) >> 16;
-                *pfb = comp;
-                ++buf;
-                ++pfb;
-            }
+        uint8_t* pfb = s_fb + line_count * buf_line_width;  //Get pointer of target buffer for current line
+        const uint32_t* buf = s_dma_buf[buf_idx];           //Get pointer of the source buffer
+        for (int i = 0; i < buf_line_width; ++i) {
+            uint32_t v = *buf;                              //Extract 4 bytes from the source buffer
+            uint8_t comp = (v & 0xff0000) >> 16;            //For luminance only we only want the 3. byte
+            *pfb = comp;                                    //Write byte to target buffer
+            ++buf;                                          //Move pointer of source buffer 4 bytes forward
+            ++pfb;                                          //Move pointer of target buffer 1 byte forward
         }
         ++line_count;
         prev_buf = buf_idx;
-        if (!i2s_running) {
+        if (!i2s_running) {                                 //i2s no longer running the frame is probably complete
             prev_buf = -1;
             xSemaphoreGive(frame_ready);
         }
